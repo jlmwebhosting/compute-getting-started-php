@@ -1,6 +1,6 @@
 <?php
 /*
- * Copyright 2012 Google Inc.
+ * Copyright 2012-2014 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,26 +16,32 @@
  */
 
 /**
- * Follow the instructions on https://code.google/com/p/google-api-php-client
- * to download, extract and include the Google APIs client library for PHP into
+ * Follow the instructions on https://github.com/google/google-api-php-client/
+ * to download, extract, and include the Google APIs client library for PHP into
  * your project.
  */
-require_once 'google-api-php-client/src/Google_Client.php';
-require_once 'google-api-php-client/src/contrib/Google_ComputeService.php';
+require_once 'Google/Client.php';
+require_once 'Google/Service/Compute.php';
 
 session_start();
 
 /**
- * Visit https://code.google.com/apis/console to generate your
+ * Visit https://cloud.google.com/console to generate your
  * oauth2_client_id, oauth2_client_secret, and to register your
  * oauth2_redirect_uri.
  */
 $client = new Google_Client();
-$client->setApplicationName("Google Compute Engine PHP Starter Application");
+$client->setApplicationName('Google Compute Engine PHP Starter Application');
 $client->setClientId('YOUR_CLIENT_ID');
 $client->setClientSecret('YOUR_CLIENT_SECRET');
+
+/**
+ * Create a service handle for the Google Compute Engine API.
+ */
 $client->setRedirectUri('YOUR_REDIRECT_URI');
-$computeService = new Google_ComputeService($client);
+$computeService = new Google_Service_Compute($client);
+$client->addScope(Google_Service_Compute::COMPUTE);
+$client->addScope(Google_Service_Compute::DEVSTORAGE_FULL_CONTROL);
 
 /**
  * The name of your Google Compute Engine Project.
@@ -43,21 +49,19 @@ $computeService = new Google_ComputeService($client);
 $project = 'YOUR_GOOGLE_COMPUTE_ENGINE_PROJECT';
 
 /**
- * Constants for sample request parameters.
- */
-define('API_VERSION', 'v1beta14');
-define('BASE_URL', 'https://www.googleapis.com/compute/'.
-  API_VERSION . '/projects/');
-define('GOOGLE_PROJECT', 'google');
+ * Constants for sample request parameters.  */
+define('API_VERSION', 'v1');
+define('BASE_URL', 'https://www.googleapis.com/compute/'. API_VERSION . 
+  '/projects/');
 define('DEFAULT_PROJECT', $project);
 define('DEFAULT_NAME', 'new-node');
-define('DEFAULT_NAME_WITH_METADATA', 'new-node-with-metadata');
-define('DEFAULT_MACHINE_TYPE', BASE_URL . DEFAULT_PROJECT .
-  '/global/machineTypes/n1-standard-1');
 define('DEFAULT_ZONE_NAME', 'us-central1-a');
-define('DEFAULT_ZONE', BASE_URL . DEFAULT_PROJECT . '/zones/' . DEFAULT_ZONE_NAME);
-define('DEFAULT_IMAGE', BASE_URL . GOOGLE_PROJECT .
-  '/global/images/gcel-12-04-v20130104');
+define('DEFAULT_ZONE', BASE_URL . DEFAULT_PROJECT . '/zones/' . 
+  DEFAULT_ZONE_NAME);
+define('DEFAULT_MACHINE_TYPE', BASE_URL . DEFAULT_PROJECT . '/zones/' . 
+  DEFAULT_ZONE_NAME . '/machineTypes/n1-standard-1');
+define('DEFAULT_IMAGE', BASE_URL . 'debian-cloud' .  
+  '/global/images/backports-debian-7-wheezy--v20131127');
 define('DEFAULT_NETWORK', BASE_URL . DEFAULT_PROJECT .
   '/global/networks/default');
 
@@ -84,6 +88,29 @@ function generateMarkup($apiRequestName, $apiResponse) {
   }
 
   return $apiRequestMarkup;
+}
+
+/**
+ * Queries the Google Compute Engine API to determine if the zone operation has
+ * completed.
+ * @param Google_Service_Compute $computeService The service handle used to
+ *        make Google Compute Engine API calls. 
+ * @param string $project The project the operation is executing within.
+ * @param string $zone The The zone the operation is executing within.
+ * @param string $operation The auto-generated name of the operation instance.
+ * @return 0 = success, 1 = error.
+ */
+function waitForZoneOperationCompletion($computeService, $project, $zone, 
+    $operation) {
+  for ($x=0; $x<=20; $x++) {
+    $operationStatus = $computeService->zoneOperations->get($project,
+      $zone, $operation);
+    if ("DONE"==$operationStatus->getStatus()) {
+      return 0; 
+    }
+    sleep((2*$x)); 
+  }
+  return 1; 
 }
 
 /**
@@ -134,16 +161,26 @@ if ($client->getAccessToken()) {
    * Google Compute Engine API request to retrieve the list of all machine types
    * associated associated with your Google Compute Engine project.
    */
-  $machineTypes = $computeService->machineTypes->listMachineTypes(DEFAULT_PROJECT);
+  $machineTypes = $computeService->machineTypes->listMachineTypes(DEFAULT_PROJECT,
+    DEFAULT_ZONE_NAME);
   $machineTypesListMarkup = generateMarkup('List Machine Types',
     $machineTypes);
 
   /**
    * Google Compute Engine API request to retrieve the list of all image types
-   * associated associated with your Google Compute Engine project.
+   * created in your Google Compute Engine project.
    */
-  $images = $computeService->images->listImages(GOOGLE_PROJECT);
-  $imagesListMarkup = generateMarkup('List Images', $images);
+  $images = $computeService->images->listImages(DEFAULT_PROJECT);
+  $imagesListMarkup = generateMarkup('Project Images', $images);
+
+  /**
+   * Google Compute Engine API request to retrieve the list of popular images
+   * available to your Google Compute Engine project.
+   */
+  $images = $computeService->images->listImages('debian-cloud');
+  $imagesListMarkup2 = generateMarkup('Debian Standard Images', $images);
+  $images = $computeService->images->listImages('centos-cloud');
+  $imagesListMarkup3 = generateMarkup('Centos Standard Images', $images);
 
   /**
    * Google Compute Engine API request to retrieve the list of all firewalls
@@ -160,93 +197,111 @@ if ($client->getAccessToken()) {
   $networksListMarkup = generateMarkup('List Networks', $networks);;
 
   /**
-   * Google Compute Engine API request to insert a new instance into your Google
-   * Compute Engine project.
+   * Google Compute Engine API request to insert a persistent disk into your
+   * Google Compute Engine project. This will be used to boot an instance.
    */
   $name = DEFAULT_NAME;
   $machineType = DEFAULT_MACHINE_TYPE;
   $zone = DEFAULT_ZONE_NAME;
   $image = DEFAULT_IMAGE;
-
-  $googleNetworkInterfaceObj = new Google_NetworkInterface();
   $network = DEFAULT_NETWORK;
-  $googleNetworkInterfaceObj->setNetwork($network);
 
-  $new_instance = new Google_Instance();
-  $new_instance->setName($name);
-  $new_instance->setImage($image);
-  $new_instance->setMachineType($machineType);
-  $new_instance->setNetworkInterfaces(array($googleNetworkInterfaceObj));
+  $new_disk = new Google_Service_Compute_Disk();
+  $new_disk->setName($name);
+  $new_disk->setSourceImage($image);
+  $new_disk->setSizeGb("100");
 
-  $insertInstance = $computeService->instances->insert(DEFAULT_PROJECT,
-    $zone, $new_instance);
-  $insertInstanceMarkup = generateMarkup('Insert Instance', $insertInstance);
+  $insertDiskOperation = $computeService->disks->insert(DEFAULT_PROJECT,
+    $zone, $new_disk);
+
+  if (waitForZoneOperationCompletion($computeService, DEFAULT_PROJECT, $zone,
+      $insertDiskOperation->getName())>0) {
+    exit('Error inserting disk.');
+  }
+
+  $bootDisk = $computeService->disks->get(DEFAULT_PROJECT, $zone, $name);
+  if (!("READY"==$bootDisk->getStatus())) {
+    exit("Disk creation didn't succeed.");
+  }
+
+  $insertDiskMarkup = generateMarkup('Inserted Disk', $bootDisk);
 
   /**
-   * Google Compute Engine API request to insert a new instance (with metadata)
-   * into your Google Compute Engine project.
+   * Google Compute Engine API request to insert an instance into your Google
+   * Compute Engine project.
    */
-  $name = DEFAULT_NAME_WITH_METADATA;
-  $machineType = DEFAULT_MACHINE_TYPE;
-  $zone = DEFAULT_ZONE_NAME;
-  $image = DEFAULT_IMAGE;
+  $startupScriptMetadata = new Google_Service_Compute_MetadataItems();
+  $startupScriptMetadata->setKey('startup-script');
+  $startupScriptMetadata->setValue('apt-get install apache2 \n apt-get install mysql');
 
-  $googleNetworkInterfaceObj = new Google_NetworkInterface();
+  $metadata = new Google_Service_Compute_Metadata();
+  $metadata->setItems(array($startupScriptMetadata));
+
+  $googleNetworkInterface = new Google_Service_Compute_NetworkInterface();
   $network = DEFAULT_NETWORK;
-  $googleNetworkInterfaceObj->setNetwork($network);
+  $googleNetworkInterface->setNetwork($network);
 
-  $metadataItemsObj = new Google_MetadataItems();
-  $metadataItemsObj->setKey('startup-script');
-  $metadataItemsObj->setValue('apt-get install apache2');
+  $primaryDisk = new Google_Service_Compute_AttachedDisk();
+  $primaryDisk->setBoot("TRUE");
+  $primaryDisk->setDeviceName("primary");
+  $primaryDisk->setMode("READ_WRITE");
+  $primaryDisk->setSource($bootDisk->getSelfLink());
+  $primaryDisk->setType("PERSISTENT");
 
-  $metadata = new Google_Metadata();
-  $metadata->setItems(array($metadataItemsObj));
-
-  $new_instance = new Google_Instance();
+  $new_instance = new Google_Service_Compute_Instance();
   $new_instance->setName($name);
-  $new_instance->setImage($image);
   $new_instance->setMachineType($machineType);
-  $new_instance->setNetworkInterfaces(array($googleNetworkInterfaceObj));
+  $new_instance->setNetworkInterfaces(array($googleNetworkInterface));
+  $new_instance->setDisks(array($bootDisk));
   $new_instance->setMetadata($metadata);
+  $new_instance->setDisks(array($primaryDisk));
 
-  $insertInstanceWithMetadata = $computeService->instances->insert(
-    DEFAULT_PROJECT, $zone, $new_instance);
-  $insertInstanceWithMetadataMarkup = generateMarkup(
-    'Insert Instance With Metadata', $insertInstanceWithMetadata);
+  $insertInstanceOperation = $computeService->instances->insert(DEFAULT_PROJECT,
+    $zone, $new_instance);
 
-  /**
-   * Google Compute Engine API request to get an instance matching the outlined
-   * parameters from your Google Compute Engine project.
-   */
-  $getInstance = $computeService->instances->get(DEFAULT_PROJECT,
-    DEFAULT_ZONE_NAME, DEFAULT_NAME);
-  $getInstanceMarkup = generateMarkup('Get Instance', $getInstance);
+  if (waitForZoneOperationCompletion($computeService, DEFAULT_PROJECT, $zone,
+      $insertInstanceOperation->getName())>0) {
+    exit('Error creating instance.');
+  }
 
-  /**
-   * Google Compute Engine API request to get an instance matching the outlined
-   * parameters from your Google Compute Engine project.
-   */
-  $getInstanceWithMetadata = $computeService->instances->get(DEFAULT_PROJECT,
-    DEFAULT_ZONE_NAME, DEFAULT_NAME_WITH_METADATA);
-  $getInstanceWithMetadataMarkup = generateMarkup('Get Instance With Metadata',
-    $getInstanceWithMetadata);
+  $insertedInstance = $computeService->instances->get(DEFAULT_PROJECT, $zone,
+    $name);
+
+  if (!("RUNNING"==$insertedInstance->getStatus())) {
+    exit("Instance creation didn't succeed.");
+  }
+
+  $insertInstanceMarkup = generateMarkup('Inserted Instance', $insertedInstance);
 
   /**
    * Google Compute Engine API request to delete an instance matching the
    * outlined parameters from your Google Compute Engine project.
    */
-  $deleteInstance = $computeService->instances->delete(DEFAULT_PROJECT,
-    DEFAULT_ZONE_NAME, DEFAULT_NAME);
-  $deleteInstanceMarkup = generateMarkup('Delete Instance', $deleteInstance);
+  $deleteInstanceOperation = $computeService->instances->delete(DEFAULT_PROJECT,
+    $zone, $name);
+
+  if (waitForZoneOperationCompletion($computeService, DEFAULT_PROJECT, $zone,
+      $deleteInstanceOperation->getName())>0) {
+    exit('Error deleting instance.');
+  }
+
+  $deleteInstanceMarkup = generateMarkup('Delete Instance Operation',
+      $deleteInstanceOperation);
 
   /**
-   * Google Compute Engine API request to delete an instance matching the
+   * Google Compute Engine API request to delete a disk matching the
    * outlined parameters from your Google Compute Engine project.
    */
-  $deleteInstanceWithMetadata = $computeService->instances->delete(DEFAULT_PROJECT,
-    DEFAULT_ZONE_NAME, DEFAULT_NAME_WITH_METADATA);
-  $deleteInstanceWithMetadataMarkup = generateMarkup(
-    'Delete Instance With Metadata', $deleteInstanceWithMetadata);
+  $deleteDiskOperation = $computeService->disks->delete(DEFAULT_PROJECT, 
+    $zone, $name);
+
+  if (waitForZoneOperationCompletion($computeService, DEFAULT_PROJECT, $zone,
+      $deleteDiskOperation->getName())>0) {
+    error_log('Error deleting disk.');
+  }
+
+  $deleteDiskMarkup = generateMarkup('Delete Disk Operation',
+    $deleteDiskOperation);
 
   /**
    * Google Compute Engine API request to retrieve the list of all global
@@ -285,6 +340,14 @@ if ($client->getAccessToken()) {
         <div id="listImages"><?php print $imagesListMarkup ?></div>
       <?php endif ?>
 
+      <?php if(isset($imagesListMarkup2)): ?>
+        <div id="listImages"><?php print $imagesListMarkup2 ?></div>
+      <?php endif ?>
+
+      <?php if(isset($imagesListMarkup3)): ?>
+        <div id="listImages"><?php print $imagesListMarkup3 ?></div>
+      <?php endif ?>
+
       <?php if(isset($firewallsListMarkup)): ?>
         <div id="listFirewalls"><?php print $firewallsListMarkup ?></div>
       <?php endif ?>
@@ -293,34 +356,20 @@ if ($client->getAccessToken()) {
         <div id="listNetworks"><?php print $networksListMarkup ?></div>
       <?php endif ?>
 
-      <?php if(isset($getInstanceWithMetadataMarkup)): ?>
-        <div id="getInstanceWithMetadata">
-          <?php print $getInstanceWithMetadataMarkup ?>
-        </div>
-      <?php endif ?>
-
-      <?php if(isset($getInstanceMarkup)): ?>
-        <div id="getInstance"><?php print $getInstanceMarkup ?></div>
-      <?php endif ?>
-
-      <?php if(isset($deleteInstanceMarkup)): ?>
-        <div id="deleteInstance"><?php print $deleteInstanceMarkup ?></div>
-      <?php endif ?>
-
-      <?php if(isset($deleteInstanceWithMetadataMarkup)): ?>
-        <div id="deleteInstanceWithMetadata">
-          <?php print $deleteInstanceWithMetadataMarkup ?>
-        </div>
+      <?php if(isset($insertDiskMarkup)): ?>
+        <div id="insertDisk"><?php print $insertDiskMarkup ?></div>
       <?php endif ?>
 
       <?php if(isset($insertInstanceMarkup)): ?>
         <div id="insertInstance"><?php print $insertInstanceMarkup ?></div>
       <?php endif ?>
 
-      <?php if(isset($insertInstanceWithMetadataMarkup)): ?>
-        <div id="insertInstanceWithMetadata">
-          <?php print $insertInstanceWithMetadataMarkup?>
-        </div>
+      <?php if(isset($deleteInstanceMarkup)): ?>
+        <div id="deleteInstance"><?php print $deleteInstanceMarkup ?></div>
+      <?php endif ?>
+
+      <?php if(isset($deleteDiskMarkup)): ?>
+        <div id="deleteDisk"><?php print $deleteDiskMarkup ?></div>
       <?php endif ?>
 
       <?php if(isset($operationsListMarkup)): ?>

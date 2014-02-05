@@ -16,22 +16,21 @@ the sample application.
 
 ## Setup Authentication
 NOTE: This README assumes that you have enabled access to the Google Compute
-Engine API via the Google API Console page.
+Engine API via the Developer Console page.
 
-1) Visit https://code.google.com/apis/console/?api=compute to register your
+1) Visit https://cloud.google.com/console/ to register your
 application.
-- Click on "API Access" in the left column
-- Click the button labeled "Create an OAuth2 client ID..." if you have not
-generated any client IDs, or "Create another client ID..." if you have
-- Give your application a name and click "Next"
-- Select "Web Application" as the "Application type"
-- Click "Create client ID"
-- Click "Edit settings..." for your new client ID
+- Select or create a project
+- Click on "APIs & auth" in the left column
+- Choose the "Credentials" sub-menu option. "Create a new client ID" if you have not
+generated any client IDs, or don't want to use one you have already created. 
+- Select "Web application" as the "Application type"
 - Under the redirect URI, enter the location of your application
-- Click "Update"
+- Click "Create client ID"
+- Note the client id and client secret that was just created
 - Click on "Overview" in the left column and note the Project ID
 
-2) Update app.php with the redirect uri, consumer key, secret, and Project ID
+2) Update app.php with the redirect uri, client id, client secret, and Project ID
 obtained in step 1.
 - Update 'YOUR_CLIENT_ID' with your oauth2 client id.
 - Update 'YOUR_CLIENT_SECRET' with your oauth2 client secret.
